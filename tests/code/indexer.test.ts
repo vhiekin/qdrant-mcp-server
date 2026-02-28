@@ -358,8 +358,8 @@ describe("CodeIndexer", () => {
       vi.restoreAllMocks();
     });
 
-    it("should batch embed operations", async () => {
-      // Create multiple files to trigger batching
+    it("should embed chunks individually", async () => {
+      // Create multiple files to trigger embedding
       for (let i = 0; i < 5; i++) {
         await createTestFile(
           codebaseDir,
@@ -368,11 +368,11 @@ describe("CodeIndexer", () => {
         );
       }
 
-      const embedBatchSpy = vi.spyOn(embeddings, "embedBatch");
+      const embedSpy = vi.spyOn(embeddings, "embed");
 
       await indexer.indexCodebase(codebaseDir);
 
-      expect(embedBatchSpy).toHaveBeenCalled();
+      expect(embedSpy).toHaveBeenCalled();
     });
   });
 

@@ -186,6 +186,12 @@ const codeConfig: CodeConfig = {
   enableASTChunking: process.env.CODE_ENABLE_AST !== "false",
   supportedExtensions: DEFAULT_CODE_EXTENSIONS,
   ignorePatterns: DEFAULT_IGNORE_PATTERNS,
+  customIgnorePatterns: process.env.CODE_CUSTOM_IGNORE
+    ? process.env.CODE_CUSTOM_IGNORE.split(",").map((p) => p.trim()).filter(Boolean)
+    : undefined,
+  customExtensions: process.env.CODE_CUSTOM_EXTENSIONS
+    ? process.env.CODE_CUSTOM_EXTENSIONS.split(",").map((e) => e.trim()).filter(Boolean)
+    : undefined,
   batchSize: parseInt(
     process.env.CODE_BATCH_SIZE || String(DEFAULT_BATCH_SIZE),
     10,

@@ -66,27 +66,47 @@ export const DEFAULT_CODE_EXTENSIONS = [
 ];
 
 export const DEFAULT_IGNORE_PATTERNS = [
-  "node_modules/**",
-  "dist/**",
-  "build/**",
-  "out/**",
-  "target/**",
-  "coverage/**",
-  ".nyc_output/**",
-  ".cache/**",
-  "__pycache__/**",
-  ".git/**",
-  ".svn/**",
-  ".hg/**",
-  ".vscode/**",
-  ".idea/**",
+  // Dependency directories (** prefix to match at any depth)
+  "**/node_modules/**",
+  "**/.venv/**",
+  "**/venv/**",
+  "**/vendor/**",
+  // Build output
+  "**/dist/**",
+  "**/build/**",
+  "**/out/**",
+  "**/target/**",
+  "**/.next/**",
+  "**/.nuxt/**",
+  // Test/coverage output
+  "**/coverage/**",
+  "**/.nyc_output/**",
+  // Caches
+  "**/.cache/**",
+  "**/__pycache__/**",
+  // Version control
+  "**/.git/**",
+  "**/.svn/**",
+  "**/.hg/**",
+  // IDE
+  "**/.vscode/**",
+  "**/.idea/**",
+  // Minified/generated files
   "*.min.js",
   "*.min.css",
   "*.bundle.js",
   "*.map",
+  "*.pyc",
+  // Logs and env
   "*.log",
   ".env",
   ".env.*",
+  // Lock files
+  "**/package-lock.json",
+  "**/.package-lock.json",
+  "**/yarn.lock",
+  "**/pnpm-lock.yaml",
+  "**/*.lock",
 ];
 
 export const LANGUAGE_MAP: Record<string, string> = {

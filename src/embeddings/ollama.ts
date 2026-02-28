@@ -118,39 +118,35 @@ export class OllamaEmbeddings implements EmbeddingProvider {
         const errorBody = await response.text();
         const textPreview =
           text.length > 100 ? text.substring(0, 100) + "..." : text;
-        const error: OllamaError = {
-          status: response.status,
-          message: `Ollama API error (${response.status}) for model "${this.model}": ${errorBody}. Text preview: "${textPreview}"`,
-        };
-        throw error;
+        const err = new Error(
+          `Ollama API error (${response.status}) for model "${this.model}": ${errorBody}. Text preview: "${textPreview}"`,
+        );
+        (err as any).status = response.status;
+        throw err;
       }
 
       return response.json();
     } catch (error) {
-      // Re-throw if it's already an OllamaError from the !response.ok block
-      if (error && typeof error === "object" && "status" in error) {
+      // Re-throw API errors from !response.ok (already have good messages + status)
+      if (error instanceof Error && (error as any).status) {
         throw error;
       }
 
-      // For Error instances (like network errors), enhance the message
+      const textPreview =
+        text.length > 100 ? text.substring(0, 100) + "..." : text;
+
+      // Enhance network errors (plain Error from fetch) with context
       if (error instanceof Error) {
-        const textPreview =
-          text.length > 100 ? text.substring(0, 100) + "..." : text;
         throw new Error(
           `Failed to call Ollama API at ${this.baseUrl} with model ${this.model}: ${error.message}. Text preview: "${textPreview}"`,
         );
       }
 
-      // Handle objects with 'message' property - preserve the original error structure
-      // This ensures objects with 'message' property work correctly in tests
-      if (this.isOllamaError(error)) {
-        throw error;
-      }
-
-      // For other types, create a descriptive error message
-      const textPreview =
-        text.length > 100 ? text.substring(0, 100) + "..." : text;
-      const errorMessage = JSON.stringify(error);
+      // For non-Error types, serialize and wrap
+      const errorMessage =
+        typeof error === "object" && error !== null
+          ? JSON.stringify(error)
+          : String(error);
 
       throw new Error(
         `Failed to call Ollama API at ${this.baseUrl} with model ${this.model}: ${errorMessage}. Text preview: "${textPreview}"`,

@@ -247,25 +247,59 @@ export class CodeIndexer {
         });
 
         try {
-          const texts = batch.map((b) => b.chunk.content);
-          const embeddings = await this.embeddings.embedBatch(texts);
+          // Embed individually so oversized chunks can be skipped
+          const embedResults: Array<{
+            chunk: (typeof batch)[0];
+            embedding: number[];
+          }> = [];
+          for (const b of batch) {
+            try {
+              const result = await this.embeddings.embed(b.chunk.content);
+              embedResults.push({ chunk: b, embedding: result.embedding });
+            } catch (error) {
+              const msg =
+                error instanceof Error ? error.message : String(error);
+              if (
+                msg.includes("context length") ||
+                msg.includes("too long")
+              ) {
+                this.log.warn(
+                  {
+                    file: relative(absolutePath, b.chunk.metadata.filePath),
+                    lines: `${b.chunk.startLine}-${b.chunk.endLine}`,
+                    contentLength: b.chunk.content.length,
+                  },
+                  "Skipping oversized chunk",
+                );
+              } else {
+                throw error;
+              }
+            }
+          }
+
+          if (embedResults.length === 0) continue;
 
           // 5. Store to Qdrant
-          const points = batch.map((b, idx) => ({
-            id: b.id,
-            vector: embeddings[idx].embedding,
+          const points = embedResults.map((r) => ({
+            id: r.chunk.id,
+            vector: r.embedding,
             payload: {
-              content: b.chunk.content,
-              relativePath: relative(absolutePath, b.chunk.metadata.filePath),
-              startLine: b.chunk.startLine,
-              endLine: b.chunk.endLine,
-              fileExtension: extname(b.chunk.metadata.filePath),
-              language: b.chunk.metadata.language,
+              content: r.chunk.chunk.content,
+              relativePath: relative(
+                absolutePath,
+                r.chunk.chunk.metadata.filePath,
+              ),
+              startLine: r.chunk.chunk.startLine,
+              endLine: r.chunk.chunk.endLine,
+              fileExtension: extname(r.chunk.chunk.metadata.filePath),
+              language: r.chunk.chunk.metadata.language,
               codebasePath: absolutePath,
-              chunkIndex: b.chunk.metadata.chunkIndex,
-              ...(b.chunk.metadata.name && { name: b.chunk.metadata.name }),
-              ...(b.chunk.metadata.chunkType && {
-                chunkType: b.chunk.metadata.chunkType,
+              chunkIndex: r.chunk.chunk.metadata.chunkIndex,
+              ...(r.chunk.chunk.metadata.name && {
+                name: r.chunk.chunk.metadata.name,
+              }),
+              ...(r.chunk.chunk.metadata.chunkType && {
+                chunkType: r.chunk.chunk.metadata.chunkType,
               }),
             },
           }));
@@ -282,22 +316,27 @@ export class CodeIndexer {
           if (this.config.enableHybridSearch) {
             // Generate sparse vectors for hybrid search
             const sparseGenerator = new BM25SparseVectorGenerator();
-            const hybridPoints = batch.map((b, idx) => ({
-              id: b.id,
-              vector: embeddings[idx].embedding,
-              sparseVector: sparseGenerator.generate(b.chunk.content),
+            const hybridPoints = embedResults.map((r) => ({
+              id: r.chunk.id,
+              vector: r.embedding,
+              sparseVector: sparseGenerator.generate(r.chunk.chunk.content),
               payload: {
-                content: b.chunk.content,
-                relativePath: relative(absolutePath, b.chunk.metadata.filePath),
-                startLine: b.chunk.startLine,
-                endLine: b.chunk.endLine,
-                fileExtension: extname(b.chunk.metadata.filePath),
-                language: b.chunk.metadata.language,
+                content: r.chunk.chunk.content,
+                relativePath: relative(
+                  absolutePath,
+                  r.chunk.chunk.metadata.filePath,
+                ),
+                startLine: r.chunk.chunk.startLine,
+                endLine: r.chunk.chunk.endLine,
+                fileExtension: extname(r.chunk.chunk.metadata.filePath),
+                language: r.chunk.chunk.metadata.language,
                 codebasePath: absolutePath,
-                chunkIndex: b.chunk.metadata.chunkIndex,
-                ...(b.chunk.metadata.name && { name: b.chunk.metadata.name }),
-                ...(b.chunk.metadata.chunkType && {
-                  chunkType: b.chunk.metadata.chunkType,
+                chunkIndex: r.chunk.chunk.metadata.chunkIndex,
+                ...(r.chunk.chunk.metadata.name && {
+                  name: r.chunk.chunk.metadata.name,
+                }),
+                ...(r.chunk.chunk.metadata.chunkType && {
+                  chunkType: r.chunk.chunk.metadata.chunkType,
                 }),
               },
             }));
@@ -721,24 +760,56 @@ export class CodeIndexer {
           message: `Generating embeddings ${i + batch.length}/${allChunks.length}`,
         });
 
-        const texts = batch.map((b) => b.chunk.content);
-        const embeddings = await this.embeddings.embedBatch(texts);
+        // Embed individually so oversized chunks can be skipped
+        const embedResults: Array<{
+          chunk: (typeof batch)[0];
+          embedding: number[];
+        }> = [];
+        for (const b of batch) {
+          try {
+            const result = await this.embeddings.embed(b.chunk.content);
+            embedResults.push({ chunk: b, embedding: result.embedding });
+          } catch (error) {
+            const msg =
+              error instanceof Error ? error.message : String(error);
+            if (msg.includes("context length") || msg.includes("too long")) {
+              this.log.warn(
+                {
+                  file: relative(
+                    absolutePath,
+                    b.chunk.metadata.filePath,
+                  ),
+                  lines: `${b.chunk.startLine}-${b.chunk.endLine}`,
+                  contentLength: b.chunk.content.length,
+                },
+                "Skipping oversized chunk",
+              );
+            } else {
+              throw error;
+            }
+          }
+        }
 
-        const points = batch.map((b, idx) => ({
-          id: b.id,
-          vector: embeddings[idx].embedding,
+        const points = embedResults.map((r) => ({
+          id: r.chunk.id,
+          vector: r.embedding,
           payload: {
-            content: b.chunk.content,
-            relativePath: relative(absolutePath, b.chunk.metadata.filePath),
-            startLine: b.chunk.startLine,
-            endLine: b.chunk.endLine,
-            fileExtension: extname(b.chunk.metadata.filePath),
-            language: b.chunk.metadata.language,
+            content: r.chunk.chunk.content,
+            relativePath: relative(
+              absolutePath,
+              r.chunk.chunk.metadata.filePath,
+            ),
+            startLine: r.chunk.chunk.startLine,
+            endLine: r.chunk.chunk.endLine,
+            fileExtension: extname(r.chunk.chunk.metadata.filePath),
+            language: r.chunk.chunk.metadata.language,
             codebasePath: absolutePath,
-            chunkIndex: b.chunk.metadata.chunkIndex,
-            ...(b.chunk.metadata.name && { name: b.chunk.metadata.name }),
-            ...(b.chunk.metadata.chunkType && {
-              chunkType: b.chunk.metadata.chunkType,
+            chunkIndex: r.chunk.chunk.metadata.chunkIndex,
+            ...(r.chunk.chunk.metadata.name && {
+              name: r.chunk.chunk.metadata.name,
+            }),
+            ...(r.chunk.chunk.metadata.chunkType && {
+              chunkType: r.chunk.chunk.metadata.chunkType,
             }),
           },
         }));
@@ -752,12 +823,14 @@ export class CodeIndexer {
           message: `Storing chunks ${i + batch.length}/${allChunks.length}`,
         });
 
+        if (points.length === 0) continue;
+
         if (this.config.enableHybridSearch) {
           const sparseGenerator = new BM25SparseVectorGenerator();
           const hybridPoints = points.map((point, idx) => ({
             ...point,
             sparseVector: sparseGenerator.generate(
-              allChunks[i + idx].chunk.content,
+              embedResults[idx].chunk.chunk.content,
             ),
           }));
           await this.qdrant.addPointsWithSparse(collectionName, hybridPoints);
@@ -783,7 +856,11 @@ export class CodeIndexer {
       return stats;
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : String(error);
+        error instanceof Error
+          ? error.message
+          : typeof error === "object" && error !== null
+            ? JSON.stringify(error)
+            : String(error);
       throw new Error(`Incremental re-indexing failed: ${errorMessage}`);
     }
   }
