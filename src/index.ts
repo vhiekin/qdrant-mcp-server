@@ -19,6 +19,8 @@ import {
 } from "./code/config.js";
 import { CodeIndexer } from "./code/indexer.js";
 import type { CodeConfig } from "./code/types.js";
+import { parseGraphConfig } from "./graph/config.js";
+import { GraphIndexer } from "./graph/indexer.js";
 import { DEFAULT_GIT_CONFIG, GitHistoryIndexer } from "./git/index.js";
 import type { GitConfig } from "./git/types.js";
 import { EmbeddingProviderFactory } from "./embeddings/factory.js";
@@ -203,7 +205,12 @@ const codeConfig: CodeConfig = {
   enableHybridSearch: process.env.CODE_ENABLE_HYBRID === "true",
 };
 
-const codeIndexer = new CodeIndexer(qdrant, embeddings, codeConfig);
+// Initialize graph config and indexer
+const graphConfig = parseGraphConfig(process.env);
+const graphIndexer = new GraphIndexer(graphConfig);
+logger.debug({ graphConfig }, "Graph indexer configured");
+
+const codeIndexer = new CodeIndexer(qdrant, embeddings, codeConfig, graphIndexer);
 logger.debug({ codeConfig }, "Code indexer configured");
 
 // Initialize git history indexer
@@ -278,6 +285,7 @@ function createAndConfigureServer(): McpServer {
       embeddings,
       codeIndexer,
       gitHistoryIndexer,
+      graphConfig,
     });
 
     // Register all resources

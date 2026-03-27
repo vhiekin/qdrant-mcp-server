@@ -90,6 +90,12 @@ export interface IndexStatus {
   chunksCount?: number;
   lastUpdated?: Date;
   languages?: string[];
+  /** Graph index stats, present when CODE_ENABLE_GRAPH=true and graph data exists */
+  graph?: {
+    nodeCount: number;
+    edgeCount: number;
+    fileCount: number;
+  };
 }
 
 export type ProgressCallback = (progress: ProgressUpdate) => void;

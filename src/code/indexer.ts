@@ -12,6 +12,7 @@ import logger from "../logger.js";
 import type { EmbeddingProvider } from "../embeddings/base.js";
 import { BM25SparseVectorGenerator } from "../embeddings/sparse.js";
 import { normalizeRemoteUrl } from "../git/extractor.js";
+import type { GraphIndexer } from "../graph/indexer.js";
 import type { QdrantManager } from "../qdrant/client.js";
 import { TreeSitterChunker } from "./chunker/tree-sitter-chunker.js";
 import { MetadataExtractor } from "./metadata.js";
@@ -41,6 +42,7 @@ export class CodeIndexer {
     private qdrant: QdrantManager,
     private embeddings: EmbeddingProvider,
     private config: CodeConfig,
+    private graphIndexer?: GraphIndexer,
   ) {}
 
   /**
@@ -148,6 +150,8 @@ export class CodeIndexer {
       });
       const metadataExtractor = new MetadataExtractor();
       const allChunks: Array<{ chunk: CodeChunk; id: string }> = [];
+      // Collect file data for graph indexing (if graphIndexer is present)
+      const graphFiles: Array<{ path: string; content: string; language: string }> = [];
 
       for (const [index, filePath] of files.entries()) {
         try {
@@ -192,6 +196,11 @@ export class CodeIndexer {
 
           stats.filesIndexed++;
 
+          // Collect for graph indexing
+          if (this.graphIndexer) {
+            graphFiles.push({ path: filePath, content: code, language });
+          }
+
           // Check total chunk limit
           if (
             this.config.maxTotalChunks &&
@@ -207,6 +216,18 @@ export class CodeIndexer {
       }
 
       stats.chunksCreated = allChunks.length;
+
+      // Graph indexing (non-fatal)
+      if (this.graphIndexer && graphFiles.length > 0) {
+        try {
+          this.graphIndexer.indexFiles(graphFiles, collectionName);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.log.warn({ err: error }, "Graph indexing failed (non-fatal)");
+          stats.errors?.push(`Graph indexing failed: ${errorMessage}`);
+        }
+      }
 
       // Save snapshot for incremental updates (even if no chunks were created)
       try {
@@ -558,6 +579,23 @@ export class CodeIndexer {
       ? Math.max(0, info.pointsCount - 1)
       : info.pointsCount;
 
+    // Fetch graph stats (non-fatal)
+    let graphStats: IndexStatus["graph"] | undefined;
+    if (this.graphIndexer) {
+      try {
+        const stats = this.graphIndexer.getStats(collectionName);
+        if (stats) {
+          graphStats = {
+            nodeCount: stats.nodeCount,
+            edgeCount: stats.edgeCount,
+            fileCount: stats.fileCount,
+          };
+        }
+      } catch {
+        // Non-fatal: graph stats are optional
+      }
+    }
+
     if (isInProgress) {
       // Indexing in progress - marker exists with indexingComplete=false
       return {
@@ -565,6 +603,7 @@ export class CodeIndexer {
         status: "indexing",
         collectionName,
         chunksCount: actualChunksCount,
+        ...(graphStats && { graph: graphStats }),
       };
     }
 
@@ -578,6 +617,7 @@ export class CodeIndexer {
         lastUpdated: indexingMarker.payload?.completedAt
           ? new Date(indexingMarker.payload.completedAt)
           : undefined,
+        ...(graphStats && { graph: graphStats }),
       };
     }
 
@@ -589,6 +629,7 @@ export class CodeIndexer {
         status: "indexed",
         collectionName,
         chunksCount: actualChunksCount,
+        ...(graphStats && { graph: graphStats }),
       };
     }
 
@@ -710,6 +751,9 @@ export class CodeIndexer {
 
       const filesToIndex = [...changes.added, ...changes.modified];
       const allChunks: Array<{ chunk: CodeChunk; id: string }> = [];
+      // Collect file data for graph incremental update
+      const graphAdded: Array<{ path: string; content: string; language: string }> = [];
+      const graphModified: Array<{ path: string; content: string; language: string }> = [];
 
       for (const [index, filePath] of filesToIndex.entries()) {
         try {
@@ -736,6 +780,16 @@ export class CodeIndexer {
             const id = metadataExtractor.generateChunkId(chunk);
             allChunks.push({ chunk, id });
           }
+
+          // Collect for graph update
+          if (this.graphIndexer) {
+            const fileData = { path: absoluteFilePath, content: code, language };
+            if (changes.added.includes(filePath)) {
+              graphAdded.push(fileData);
+            } else {
+              graphModified.push(fileData);
+            }
+          }
         } catch (error) {
           this.log.error(
             { filePath, err: error },
@@ -745,6 +799,16 @@ export class CodeIndexer {
       }
 
       stats.chunksAdded = allChunks.length;
+
+      // Graph incremental update (non-fatal)
+      if (this.graphIndexer) {
+        try {
+          const deletedAbsolute = changes.deleted.map((f) => join(absolutePath, f));
+          this.graphIndexer.updateFiles(graphAdded, graphModified, deletedAbsolute, collectionName);
+        } catch (error) {
+          this.log.warn({ err: error }, "Graph update failed (non-fatal)");
+        }
+      }
 
       // Generate embeddings and store in batches
       const batchSize = this.config.batchSize;
@@ -884,6 +948,15 @@ export class CodeIndexer {
       await synchronizer.deleteSnapshot();
     } catch (_error) {
       // Ignore snapshot deletion errors
+    }
+
+    // Clear graph DB (non-fatal)
+    if (this.graphIndexer) {
+      try {
+        this.graphIndexer.clearGraph(collectionName);
+      } catch (error) {
+        this.log.warn({ err: error }, "Graph clear failed (non-fatal)");
+      }
     }
   }
 

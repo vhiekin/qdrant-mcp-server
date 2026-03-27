@@ -204,6 +204,23 @@ export class GraphStorage {
   }
 
   /**
+   * Find nodes by name, optionally filtered by file path.
+   * Used by graph tools to resolve (name, filePath?) → nodeId.
+   */
+  findNodesByName(name: string, filePath?: string): GraphNode[] {
+    if (filePath) {
+      const rows = this.db
+        .prepare("SELECT * FROM nodes WHERE name = ? AND file_path = ?")
+        .all(name, filePath) as any[];
+      return rows.map(this.rowToNode);
+    }
+    const rows = this.db
+      .prepare("SELECT * FROM nodes WHERE name = ?")
+      .all(name) as any[];
+    return rows.map(this.rowToNode);
+  }
+
+  /**
    * Get nodes that call the given node (incoming "calls" edges).
    */
   getCallers(nodeId: string): GraphNode[] {

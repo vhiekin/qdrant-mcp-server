@@ -248,3 +248,62 @@ export const FederatedSearchSchema = {
     .optional()
     .describe("Total maximum results across all repositories (default: 20)"),
 };
+
+// Graph tool schemas
+export const TraceCallChainSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+  name: z.string().describe("Symbol name to trace (e.g., 'parseConfig', 'MyClass.handleRequest')"),
+  filePath: z
+    .string()
+    .optional()
+    .describe("Optional file path to narrow lookup when multiple symbols share the same name"),
+  maxDepth: z
+    .number()
+    .optional()
+    .describe("Maximum traversal depth (default: 10). Increase to trace deeper call chains."),
+};
+
+export const ImpactAnalysisSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+  name: z.string().describe("Symbol name to analyze — finds all callers that would be affected by changes to this symbol"),
+  filePath: z
+    .string()
+    .optional()
+    .describe("Optional file path to narrow lookup when multiple symbols share the same name"),
+  maxDepth: z
+    .number()
+    .optional()
+    .describe("Maximum traversal depth (default: 10). Controls how far up the call tree to search."),
+};
+
+export const DependencyClustersSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+};
+
+export const GetCallersSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+  name: z.string().describe("Symbol name to find callers for (one hop only)"),
+  filePath: z
+    .string()
+    .optional()
+    .describe("Optional file path to narrow lookup when multiple symbols share the same name"),
+};
+
+export const GetCalleesSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+  name: z.string().describe("Symbol name to find callees for — what does this symbol call? (one hop only)"),
+  filePath: z
+    .string()
+    .optional()
+    .describe("Optional file path to narrow lookup when multiple symbols share the same name"),
+};
+
+export const SharedInterfacesSchema = {
+  path: z.string().describe("Path to codebase (must be indexed with graph enabled)"),
+  filesA: z
+    .array(z.string())
+    .describe("First set of files (relative paths within codebase)"),
+  filesB: z
+    .array(z.string())
+    .describe("Second set of files (relative paths within codebase). Returns interfaces/types used by both sets."),
+};
