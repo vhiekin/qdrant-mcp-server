@@ -71,8 +71,17 @@ export class GraphIndexer {
         }
       }
 
+      // Cross-file resolution: match unresolved targets to actual nodes
+      const resolved = storage.resolveEdges();
+
       log.info(
-        { collectionName, nodesTotal, edgesTotal, fileCount: files.length },
+        {
+          collectionName,
+          nodesTotal,
+          edgesTotal,
+          resolvedEdges: resolved,
+          fileCount: files.length,
+        },
         "Graph index complete",
       );
     } finally {
@@ -141,11 +150,15 @@ export class GraphIndexer {
         }
       }
 
+      // Re-resolve edges (new nodes may satisfy previously unresolved targets)
+      const resolved = storage.resolveEdges();
+
       log.info(
         {
           collectionName,
           nodesTotal,
           edgesTotal,
+          resolvedEdges: resolved,
           addedCount: added.length,
           modifiedCount: modified.length,
           deletedCount: deleted.length,

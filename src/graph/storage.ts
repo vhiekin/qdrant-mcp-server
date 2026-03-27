@@ -183,6 +183,115 @@ export class GraphStorage {
     log.debug({ count: filePaths.length }, "Deleted data for files");
   }
 
+  /**
+   * Resolve unresolved edges by matching target names to existing nodes.
+   * For each edge where target_id starts with "unresolved:", look up the name
+   * in the nodes table. Unique match → resolve. Ambiguous → use file proximity
+   * (same dir > same parent > any). Still ambiguous → leave unresolved.
+   *
+   * Returns the number of edges resolved.
+   */
+  resolveEdges(): number {
+    const unresolvedEdges = this.db
+      .prepare(
+        "SELECT rowid, source_id, target_id, relationship_type, source_file FROM edges WHERE target_id LIKE 'unresolved:%'",
+      )
+      .all() as Array<{
+      rowid: number;
+      source_id: string;
+      target_id: string;
+      relationship_type: string;
+      source_file: string;
+    }>;
+
+    if (unresolvedEdges.length === 0) return 0;
+
+    const findByName = this.db.prepare(
+      "SELECT id, file_path FROM nodes WHERE name = ?",
+    );
+
+    const updateEdge = this.db.prepare(
+      "UPDATE edges SET target_id = ?, target_file = ? WHERE rowid = ?",
+    );
+
+    // Delete edge if it would create a duplicate after resolution
+    const deleteEdge = this.db.prepare("DELETE FROM edges WHERE rowid = ?");
+
+    const checkDuplicate = this.db.prepare(
+      "SELECT 1 FROM edges WHERE source_id = ? AND target_id = ? AND relationship_type = ? AND rowid != ?",
+    );
+
+    let resolved = 0;
+
+    const resolve = this.db.transaction(() => {
+      for (const edge of unresolvedEdges) {
+        const name = edge.target_id.slice("unresolved:".length);
+        const candidates = findByName.all(name) as Array<{
+          id: string;
+          file_path: string;
+        }>;
+
+        if (candidates.length === 0) continue;
+
+        let match: { id: string; file_path: string };
+
+        if (candidates.length === 1) {
+          match = candidates[0];
+        } else {
+          // Proximity heuristic: prefer same directory, then same parent
+          const sourceDir = edge.source_file.substring(
+            0,
+            edge.source_file.lastIndexOf("/"),
+          );
+          const sourceParent = sourceDir.substring(
+            0,
+            sourceDir.lastIndexOf("/"),
+          );
+
+          const sameDir = candidates.filter((c) =>
+            c.file_path.startsWith(sourceDir + "/"),
+          );
+          if (sameDir.length === 1) {
+            match = sameDir[0];
+          } else {
+            const sameParent = candidates.filter((c) =>
+              c.file_path.startsWith(sourceParent + "/"),
+            );
+            if (sameParent.length === 1) {
+              match = sameParent[0];
+            } else {
+              // Still ambiguous — pick the first candidate (deterministic order from DB)
+              match = candidates[0];
+            }
+          }
+        }
+
+        // Check for duplicate: would this resolved edge clash with an existing one?
+        const dup = checkDuplicate.get(
+          edge.source_id,
+          match.id,
+          edge.relationship_type,
+          edge.rowid,
+        );
+        if (dup) {
+          // Delete the unresolved duplicate
+          deleteEdge.run(edge.rowid);
+        } else {
+          updateEdge.run(match.id, match.file_path, edge.rowid);
+        }
+        resolved++;
+      }
+    });
+
+    resolve();
+
+    log.info(
+      { total: unresolvedEdges.length, resolved },
+      "Cross-file edge resolution complete",
+    );
+    return resolved;
+  }
+
   // ---------------------------------------------------------------------------
   // Single-hop queries
   // ---------------------------------------------------------------------------
