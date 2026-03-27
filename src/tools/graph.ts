@@ -10,22 +10,17 @@
  * - get_shared_interfaces: Interfaces/types used across multiple files
  */
 
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import logger from "../logger.js";
+import { CodeIndexer } from "../code/indexer.js";
 import { DependencyClusterAnalyzer } from "../graph/clusters.js";
 import { GraphStorage } from "../graph/storage.js";
 import type { GraphConfig } from "../graph/types.js";
-import { normalizeRemoteUrl } from "../git/extractor.js";
 import { withToolLogging } from "./logging.js";
 import * as schemas from "./schemas.js";
 
 const log = logger.child({ component: "graph-tools" });
-
-const execFileAsync = promisify(execFile);
 
 export interface GraphToolDependencies {
   graphConfig: GraphConfig;
@@ -33,42 +28,10 @@ export interface GraphToolDependencies {
 
 /**
  * Derive the collection name for a codebase path.
- * Mirrors the logic in CodeIndexer.getCollectionName.
+ * Delegates to CodeIndexer.getCollectionName to avoid logic duplication.
  */
 async function collectionNameForPath(path: string): Promise<string> {
-  const absolutePath = resolve(path);
-
-  try {
-    const cleanEnv = { ...process.env };
-    delete cleanEnv.GIT_DIR;
-    delete cleanEnv.GIT_WORK_TREE;
-    delete cleanEnv.GIT_INDEX_FILE;
-
-    const { stdout: gitRootResult } = await execFileAsync(
-      "git",
-      ["rev-parse", "--show-toplevel"],
-      { cwd: absolutePath, env: cleanEnv },
-    );
-    const gitRoot = gitRootResult.trim();
-
-    if (gitRoot === absolutePath) {
-      const { stdout } = await execFileAsync(
-        "git",
-        ["remote", "get-url", "origin"],
-        { cwd: absolutePath, env: cleanEnv },
-      );
-      const normalized = normalizeRemoteUrl(stdout.trim());
-      if (normalized) {
-        const hash = createHash("md5").update(normalized).digest("hex");
-        return `code_${hash.substring(0, 8)}`;
-      }
-    }
-  } catch {
-    // Not a git repo or no remote
-  }
-
-  const hash = createHash("md5").update(absolutePath).digest("hex");
-  return `code_${hash.substring(0, 8)}`;
+  return CodeIndexer.getCollectionName(resolve(path));
 }
 
 /**
@@ -243,11 +206,28 @@ export function registerGraphTools(
             };
           }
 
+          // The first node in impactedNodes is the root node itself; callers start at index 1
+          const affectedCallers = result.impactedNodes.filter(
+            (n) => n.id !== result.rootNodeId,
+          );
+          const rootNode = result.impactedNodes.find(
+            (n) => n.id === result.rootNodeId,
+          );
+
           const lines: string[] = [
-            `Impact analysis for '${name}' (max depth: ${result.maxDepth}, affected nodes: ${result.impactedNodes.length}):`,
+            `Impact analysis for '${name}' (max depth: ${result.maxDepth}, affected callers: ${affectedCallers.length}):`,
             "",
           ];
-          result.impactedNodes.forEach((node, idx) => {
+          if (rootNode) {
+            lines.push(
+              `Root: ${rootNode.name} [${rootNode.nodeType}]`,
+              `   File: ${rootNode.filePath}:${rootNode.startLine}-${rootNode.endLine}`,
+              "",
+              "Callers:",
+              "",
+            );
+          }
+          affectedCallers.forEach((node, idx) => {
             lines.push(
               `${idx + 1}. ${node.name} [${node.nodeType}]`,
               `   File: ${node.filePath}:${node.startLine}-${node.endLine}`,
@@ -527,44 +507,25 @@ export function registerGraphTools(
         const storage = openStorage(collectionName);
 
         try {
-          // Get all shared interfaces from storage
-          const allShared = storage.getSharedInterfaces();
+          // Find interfaces/types referenced by files in BOTH sets
+          const shared = storage.getSharedInterfacesBetween(filesA, filesB);
 
-          if (allShared.length === 0) {
+          if (shared.length === 0) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `No shared interfaces found in codebase at "${path}".`,
+                  text: `No shared interfaces found between the specified file sets in codebase at "${path}".`,
                 },
               ],
             };
           }
 
-          // Filter to interfaces referenced by files in both sets
-          // An interface is "shared" between filesA and filesB if its
-          // filePath matches a file in either set, OR if edges from both
-          // sets point to it. Since getSharedInterfaces already filters
-          // to nodes referenced from >1 source file, we further filter
-          // to nodes whose filePath overlaps with either set.
-          const setA = new Set(filesA);
-          const setB = new Set(filesB);
-
-          const relevant = allShared.filter(
-            (node) => setA.has(node.filePath) || setB.has(node.filePath),
-          );
-
-          const displayed = relevant.length > 0 ? relevant : allShared;
-          const note =
-            relevant.length === 0
-              ? "\n(No interfaces matched the specified file sets — showing all shared interfaces)\n"
-              : "";
-
           const lines: string[] = [
-            `Shared interfaces/types (${displayed.length}):${note}`,
+            `Shared interfaces/types (${shared.length}):`,
             "",
           ];
-          displayed.forEach((node, idx) => {
+          shared.forEach((node, idx) => {
             lines.push(
               `${idx + 1}. ${node.name} [${node.nodeType}]`,
               `   File: ${node.filePath}:${node.startLine}-${node.endLine}`,

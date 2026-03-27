@@ -221,14 +221,6 @@ export class RelationshipExtractor {
     );
     if (!moduleName) return;
 
-    // Get imported names
-    const importClause = node.children.find(
-      (c) =>
-        c.type === "import_clause" ||
-        c.type === "named_imports" ||
-        c.type === "import_specifier",
-    );
-
     // Find all imported identifiers
     const importedNames: string[] = [];
     this.traverse(node, (child) => {
@@ -949,22 +941,56 @@ export class RelationshipExtractor {
   ): void {
     const moduleNode = this.getOrCreateModuleNode(filePath, "rust", nodes);
 
-    // Extract the path from use declarations
-    this.traverse(node, (child) => {
-      if (child.type === "identifier" && child.nextSibling === null) {
-        // Last identifier in a use path
-        const name = this.getNodeText(child, code);
-        if (isValidName(name)) {
-          edges.push({
-            sourceId: moduleNode.id,
-            targetId: `${UNRESOLVED_PREFIX}${name}`,
-            relationshipType: "imports",
-            sourceFile: filePath,
-            targetFile: null,
-          });
+    /**
+     * Recursively extract imported names from a use_tree node.
+     * Handles:
+     *   - simple:    use std::fs           → identifier "fs" with no next sibling
+     *   - grouped:   use std::{fs, io}     → use_list containing identifiers
+     *   - nested:    use std::{fs, io::{Read, Write}}
+     */
+    const extractFromUseTree = (useTree: Parser.SyntaxNode): void => {
+      for (const child of useTree.children) {
+        if (child.type === "use_list") {
+          // Grouped import: {fs, io, ...}
+          extractFromUseTree(child);
+        } else if (child.type === "use_as_clause") {
+          // use foo as bar — take the alias (last identifier)
+          const alias = child.childForFieldName("alias");
+          if (alias && alias.type === "identifier") {
+            const name = this.getNodeText(alias, code);
+            if (isValidName(name)) {
+              edges.push({
+                sourceId: moduleNode.id,
+                targetId: `${UNRESOLVED_PREFIX}${name}`,
+                relationshipType: "imports",
+                sourceFile: filePath,
+                targetFile: null,
+              });
+            }
+          }
+        } else if (child.type === "scoped_identifier" || child.type === "use_tree") {
+          // Nested path — recurse
+          extractFromUseTree(child);
+        } else if (child.type === "identifier") {
+          // Plain identifier — only emit if it's not a path segment (i.e. no :: follows)
+          const next = child.nextNamedSibling;
+          if (!next || next.type !== "use_tree") {
+            const name = this.getNodeText(child, code);
+            if (isValidName(name)) {
+              edges.push({
+                sourceId: moduleNode.id,
+                targetId: `${UNRESOLVED_PREFIX}${name}`,
+                relationshipType: "imports",
+                sourceFile: filePath,
+                targetFile: null,
+              });
+            }
+          }
         }
       }
-    });
+    };
+
+    extractFromUseTree(node);
   }
 
   private extractRustImpl(

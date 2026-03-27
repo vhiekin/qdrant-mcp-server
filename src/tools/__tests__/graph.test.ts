@@ -63,6 +63,7 @@ function createDefaultMockInstance() {
       maxDepth: 0,
     }),
     getSharedInterfaces: vi.fn().mockReturnValue([]),
+    getSharedInterfacesBetween: vi.fn().mockReturnValue([]),
     getStats: vi.fn().mockReturnValue({ nodeCount: 0, edgeCount: 0, fileCount: 0, relationshipCounts: {} }),
   };
 }
@@ -283,6 +284,7 @@ describe("registerGraphTools", () => {
           maxDepth: 1,
         }),
         getSharedInterfaces: vi.fn().mockReturnValue([{ ...mockNode, nodeType: "interface", name: "MyInterface" }]),
+        getSharedInterfacesBetween: vi.fn().mockReturnValue([{ ...mockNode, nodeType: "interface", name: "MyInterface" }]),
       };
     });
 

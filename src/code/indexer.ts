@@ -961,12 +961,13 @@ export class CodeIndexer {
   }
 
   /**
-   * Generate deterministic collection name from codebase path.
+   * Generate deterministic collection name from an absolute codebase path.
    * Uses git remote URL for consistent naming across machines, with fallback to directory name.
+   *
+   * This is a pure utility function exposed as a public static so that other modules
+   * (e.g. graph tools) can derive the same collection name without duplicating logic.
    */
-  private async getCollectionName(path: string): Promise<string> {
-    const absolutePath = resolve(path);
-
+  static async getCollectionName(absolutePath: string): Promise<string> {
     // Try git remote URL for consistent naming
     // Check if THIS directory is the git root (not just inside a git repo)
     try {
@@ -1004,5 +1005,13 @@ export class CodeIndexer {
     // Fallback: full absolute path (consistent with original behavior)
     const hash = createHash("md5").update(absolutePath).digest("hex");
     return `code_${hash.substring(0, 8)}`;
+  }
+
+  /**
+   * Instance wrapper for getCollectionName that accepts a non-resolved path.
+   */
+  private async getCollectionName(path: string): Promise<string> {
+    const absolutePath = resolve(path);
+    return CodeIndexer.getCollectionName(absolutePath);
   }
 }

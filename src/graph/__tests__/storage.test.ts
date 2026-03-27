@@ -156,6 +156,31 @@ describe("GraphStorage", () => {
       expect(storage.getNode("n1")).toBeUndefined();
       expect(storage.getNode("n2")).toBeDefined();
     });
+
+    it("should delete incoming edges (target_file) when a file is removed", () => {
+      // n1 in /src/a.ts imports n2 in /src/b.ts
+      const node1 = makeNode({ id: "n1", filePath: "/src/a.ts" });
+      const node2 = makeNode({ id: "n2", filePath: "/src/b.ts" });
+      storage.insertNodes([node1, node2]);
+
+      // Edge goes FROM a.ts TO b.ts
+      const edge = makeEdge({
+        sourceId: "n1",
+        targetId: "n2",
+        sourceFile: "/src/a.ts",
+        targetFile: "/src/b.ts",
+      });
+      storage.insertEdges([edge]);
+
+      // Deleting b.ts should also remove the edge that targets it
+      storage.deleteByFiles(["/src/b.ts"]);
+
+      expect(storage.getNode("n2")).toBeUndefined();
+      // The incoming edge from a.ts → b.ts should be gone
+      expect(storage.getIncomingEdges("n2")).toHaveLength(0);
+      // And it should not appear in outgoing edges from n1 either
+      expect(storage.getOutgoingEdges("n1")).toHaveLength(0);
+    });
   });
 
   describe("getNodesByFile", () => {

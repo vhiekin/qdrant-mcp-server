@@ -167,11 +167,15 @@ export class GraphStorage {
     const deleteEdgesBySourceFile = this.db.prepare(
       "DELETE FROM edges WHERE source_file = ?",
     );
+    const deleteEdgesByTargetFile = this.db.prepare(
+      "DELETE FROM edges WHERE target_file = ?",
+    );
 
     const deleteMany = this.db.transaction((paths: string[]) => {
       for (const p of paths) {
         deleteNodesByFile.run(p);
         deleteEdgesBySourceFile.run(p);
+        deleteEdgesByTargetFile.run(p);
       }
     });
 
@@ -280,6 +284,7 @@ export class GraphStorage {
     const visited = new Set<string>();
     const nodeIds: string[] = [];
     const graphNodes: GraphNode[] = [];
+    let actualMaxDepth = 0;
 
     const queue: Array<{ nodeId: string; depth: number }> = [
       { nodeId: startNodeId, depth: 0 },
@@ -292,6 +297,7 @@ export class GraphStorage {
 
       visited.add(current.nodeId);
       nodeIds.push(current.nodeId);
+      actualMaxDepth = Math.max(actualMaxDepth, current.depth);
 
       const node = this.getNode(current.nodeId);
       if (node) {
@@ -315,7 +321,7 @@ export class GraphStorage {
     return {
       nodeIds,
       nodes: graphNodes,
-      depth: Math.max(0, nodeIds.length - 1),
+      depth: actualMaxDepth,
     };
   }
 
@@ -386,6 +392,41 @@ export class GraphStorage {
          AND (SELECT COUNT(DISTINCT e.source_file) FROM edges e WHERE e.target_id = n.id) > 1`,
       )
       .all() as any[];
+    return rows.map(this.rowToNode);
+  }
+
+  /**
+   * Get interfaces/types that are referenced by files in BOTH setA and setB.
+   * Returns only nodes that have at least one incoming edge from a file in setA
+   * AND at least one incoming edge from a file in setB.
+   */
+  getSharedInterfacesBetween(
+    filesA: string[],
+    filesB: string[],
+  ): GraphNode[] {
+    if (filesA.length === 0 || filesB.length === 0) return [];
+
+    // Build parameterized placeholders
+    const placeholdersA = filesA.map(() => "?").join(", ");
+    const placeholdersB = filesB.map(() => "?").join(", ");
+
+    const rows = this.db
+      .prepare(
+        `SELECT n.* FROM nodes n
+         WHERE n.node_type IN ('interface', 'type')
+           AND EXISTS (
+             SELECT 1 FROM edges ea
+             WHERE ea.target_id = n.id
+               AND ea.source_file IN (${placeholdersA})
+           )
+           AND EXISTS (
+             SELECT 1 FROM edges eb
+             WHERE eb.target_id = n.id
+               AND eb.source_file IN (${placeholdersB})
+           )`,
+      )
+      .all(...filesA, ...filesB) as any[];
+
     return rows.map(this.rowToNode);
   }
 
