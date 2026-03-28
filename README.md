@@ -637,6 +637,15 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
 **Automated releases**: Semantic versioning via conventional commits - `feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` → major.
 
+## Setup (vhiekin fork)
+
+To recreate on a new machine:
+
+1. Clone your fork: `git clone https://github.com/vhiekin/qdrant-mcp-server`
+2. `npm install && npm run build`
+3. Clone config: `git clone https://github.com/vhiekin/claude-workspace-config && ./install.sh`
+4. Graph DBs rebuild automatically on first reindex
+
 ## Acknowledgments
 
 The code vectorization feature is inspired by and builds upon concepts from the excellent [claude-context](https://github.com/zilliztech/claude-context) project (MIT License, Copyright 2025 Zilliz).
